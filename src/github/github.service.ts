@@ -224,7 +224,7 @@ export class GithubService {
             return {state: "failure", existingState: selfStatus.state, present: present, missing: missing};
         }
 
-        if (hasPending) {
+        if (hasPending || missing.length > 0) {
             return {state: "pending", existingState: selfStatus.state, present: present, missing: missing};
         }
         
