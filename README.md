@@ -1,66 +1,106 @@
 # Greenlight
 
-`greenlight` is a tool for managing the mergeability of Github pull requests based on a set of required status checks. It is designed as an event-driven alternative to tools like [merge-gatekeeper](https://github.com/upsidr/merge-gatekeeper) which, by design, are somewhat inefficient.
+`greenlight` is a lightweight, containerized tool for managing the mergeability of Github pull requests based on a set of required status checks. It is designed as an event-driven alternative to tools like [merge-gatekeeper](https://github.com/upsidr/merge-gatekeeper) which, by design, are somewhat inefficient.
 
 ## How It Works
 
 `greenlight` is intended to act as the sole [required status check](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks) on the repository, and therefore the single source of truth concerning mergeability. 
 
-It monitors the status checks on pull requests and compares them against the defined `require` and `ignore` lists to determine if the pull request satisfies the configured criteria. This consolidated status is displayed via a comment indicating the state of each required status check, as well as via the `greenlight` status check that will be added to the pull request.
+It monitors the the state of each status check on a pull request, and determines the pull request's mergeability by comparing the live statuses against a pre-defined or dynamically-generated list of required statuses.
 
-## Config File
+`greenlight` refreshes the mergeability of a pull request when it recieves a webhook event, or when the auther comments `/greenlight refresh`.
 
-`greenlight` supports the following configuration options
+`greenlight` surfaces a pull requset's merge status via the `greenlight` status check, and via a dashboard comment (pictured):
 
-Required status checks are defined in the `config.yaml` file:
+![alt text](docs/images/image.png "greenlight comment")
+
+## Getting Started
+
+`greenlight` is a containerized tool, meaning it can be run on any number of platforms. To get started with `greenlight` locally, you can use `ngrok` to create an externally-accessible endpoint for the local `greenlight` container.
+
+### Prerequisites
+
+- [Create a Github Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) with `repo.*` permissions.
+- Install & configure `ngrok` using [these instructions](https://ngrok.com/docs/getting-started/?os=linux).
+
+Once prerequisites have been completed, create a basic `greenlight.yaml` configuration file:
 
 ```
+# greenlight.yaml
 status:
   require:
-  - 'CI/CD Pipeline'
+    - 'Your Required Status Check'
 ```
 
-By default, `greenlight` ignores status checks that aren't included in `status.require`. You can invert this with strict mode (see below) to require all present statuses to succeed before the pull request is considered mergeable. 
+Then, start the `greenlight` container with your configuration mounted at `/app/greenlight.yaml`:
 
-This configuration will result in `greenlight` only monitoring for the 'CI/CD Pipeline' status check. 
+```bash
+docker run -d \
+  -v $(pwd)/greenlight.yaml:/app/greenlight.yaml \
+  -e GITHUB_TOKEN=$GITHUB_TOKEN \
+  -p 3000:3000 \
+  mrmonaghan/greenlight:latest
+```
 
-Adding another status follows the same logic:
+Once the container has started, start `ngrok` and point it at the base URL of the local container: 
 
 ```
+ngrok http http://localhost:3000
+```
+
+This will print out a disposable URL at which your local `greenlight` container will be publicly accessible. Use this URL to configure a Github webhook on your repository with the following attributes:
+
+```
+url: https://$ngrokUrl/github/webhook
+content-type: application/json
+events:
+  statuses
+  issue_comments
+```
+
+You can confirm everything is working by commenting `/greenlight refresh` on your pull request; you should see subsquent logs being emitted from the `greenlight` container in response:
+
+```
+{"message": "handling issue_comment event id: ..."}
+```
+
+A `greenlight` status check and associated comment will also be created indicating the merge status of the pull request.
+
+## greenlight.yaml
+
+`greenlight` is configured using the `greenlight.yaml` file, which supports the following options:
+
+```yaml
 status:
+  strict: false
   require:
-  - 'CI/CD Pipeline'
-  - 'Integration Tests'
-```
-
-Now `greenlight` will require both 'CI/CD Pipeline' and 'Integration Tests' status checks to be present with a state of `success` before marking the pull request as mergeable.
-
-### Strict Mode & Ignores
-
-Setting `status.strict: true` will cause `greenlight` to consider all present status checks as required in addition to those defined in `status.require`. This is useful when you are unclear about when a conditional workflow may run, but want to enforce its success when it does.
-
-You can explicitly ignore status checks when using strict mode to prevent them being evaluated. For example:
-
-```
-status:
-  strict: true
-  require:
-  - 'CI/CD Pipeline'
-  - 'Integration Tests'
+    - 'Status That Must Succeed'
   ignore:
-  - 'Irrelevant Status Check'
-```
+    - 'Status I Don't Care About'
 
-### Branches
-
-`greenlight` can both `include` and `ignore` branch patterns to limit the pull requests it operates on. This is configured via `branch.include` and `branch.ignore`:
-
-```
 branch:
   include:
-    - dev-branch-*
-  ignore:
-    - test-branch-*
+    - feat-branch-*
+  exclude:
+    - docs-branch-*
 ```
 
-Branch rules are evaluated `ignores > includes`, so if a branch matches both an `ignore` and an `includes` pattern, it will be ignored. In this case, `greenlight` responds with a `200` and message indicating the branch was ignored.
+### configuration options
+
+| option | description | default |
+|--      |--           |--       |
+| `status.require` | A list of unignored status checks that are required to be present with a state of `success` in order for the pull request to be mergeable. If a check is present in both `status.require` and `status.ignore`, it will be ignored. | `[]` | 
+| `status.ignore` | A list of status checks to ignore during evaluation. Typically used in combination with `strict=true` | `[]` |
+| `status.strict` | When `true`, require *all* present, unignored status checks to pass before considering the pull request mergeable. When `strict=true`, both `status.require` and  `status.ignore` can still be used. The heirarchy of evaluation is `ignore > required > present` | `false` |
+| `branch.include` | A list of glob expressions the pull request branch must match in order for `greenlight` to take action. Eg: `example-branch-*` | `[]` |
+| `branch.ignore` | The inverse of `branch.include`. `greenlight` will ignore any branch that matches a glob pattern in `branch.ignore`. Ignore rules are always evaluated first, meaning if a branch matches both a `branch.include` and a `branch.ignore` pattern, it will be ignored.
+
+
+## Environment Variables
+
+The following environment variables can also be used to configure `greenlight`:
+
+| var | description | default | required? |
+|--      |--           |--       |--      |
+| `GITHUB_TOKEN` | The Github PAT that will be used to authenticate. Requires `repo.*` permissions. | `null` | `yes` |
+| `CONFIG_FILE` | Full path to the `greenlight.yaml` file. | `/app/greenlight.yaml` |  `no` | 
