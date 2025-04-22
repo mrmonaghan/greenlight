@@ -10,7 +10,7 @@ It monitors the the state of each status check on a pull request, and determines
 
 `greenlight` refreshes the mergeability of a pull request when it recieves a webhook event, or when the author comments `/greenlight refresh`.
 
-`greenlight` surfaces a pull requset's merge status via the `greenlight` status check, and via a dashboard comment (pictured):
+`greenlight` surfaces a pull request's merge status via the `greenlight` status check, and via a dashboard comment (pictured):
 
 ![alt text](docs/images/image.png "greenlight comment")
 
