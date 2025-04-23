@@ -1,54 +1,50 @@
 # Greenlight
 
-`greenlight` is a lightweight, containerized tool for managing the mergeability of Github pull requests based on a set of required status checks. It is designed as an event-driven alternative to tools like [merge-gatekeeper](https://github.com/upsidr/merge-gatekeeper) which, by design, are somewhat inefficient.
+`greenlight` is a tool for controlling the merge status of Github pull requests based on the results of one or more required status checks.
+
+It is designed as an event-driven alternative to tools like [merge-gatekeeper](https://github.com/upsidr/merge-gatekeeper) which, by design, are somewhat inefficient when long-running workflows are involved.
 
 ## How It Works
 
-`greenlight` is intended to act as the sole [required status check](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks) on the repository, and therefore the single source of truth concerning mergeability. 
+`greenlight` is intended to act as the sole [required status check](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#require-status-checks-before-merging) on the repository, and therefore the single source of truth concerning mergeability.
 
-It monitors the the state of each status check on a pull request, and determines the pull request's mergeability by comparing the live statuses against a pre-defined or dynamically-generated list of required statuses.
+It monitors the status checks on pull requests and compares them against the defined `require` and `ignore` lists to determine if the pull request satisfies the configured criteria. 
 
-`greenlight` refreshes the mergeability of a pull request when it recieves a webhook event, or when the author comments `/greenlight refresh`.
+This consolidated status is displayed via a comment indicating the state of each required status check, as well as via the `greenlight` status check that will be added to the pull request. 
 
-`greenlight` surfaces a pull request's merge status via the `greenlight` status check, and via a dashboard comment (pictured):
+In turn, this status check can be marked as required via branch protection rules.
+
+## Config File
+
+`greenlight` supports the following configuration options
 
 ![alt text](docs/images/image.png "greenlight comment")
 
 ## Getting Started
 
-`greenlight` is a containerized tool, meaning it can be run on any number of platforms. To get started with `greenlight` locally, you can use `ngrok` to create an externally-accessible endpoint for the local `greenlight` container.
+`greenlight` is distributed as a single container that can be run on any number of platforms. To get started with `greenlight` locally, use `docker` and a tool like [ngrok](<https://ngrok.com/docs/getting-started/?os=linux)>) to make the local container accessible to Github webhooks.
 
-### Prerequisites
 
-- [Create a Github Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) with `repo.*` permissions.
-- Install & configure `ngrok` using [these instructions](https://ngrok.com/docs/getting-started/?os=linux).
-
-Once prerequisites have been completed, create a basic `greenlight.yaml` configuration file:
+First, create a basic `greenlight.yaml` configuration file:
 
 ```
-# greenlight.yaml
 status:
   require:
-    - 'Your Required Status Check'
+  - 'CI/CD Pipeline'
 ```
 
-Then, start the `greenlight` container with your configuration mounted at `/app/greenlight.yaml`:
+By default, `greenlight` ignores status checks that aren't included in `status.require`. You can invert this with strict mode (see below) to require all present statuses to succeed before the pull request is considered mergeable. 
 
-```bash
-docker run -d \
-  -v $(pwd)/greenlight.yaml:/app/greenlight.yaml \
-  -e GITHUB_TOKEN=$GITHUB_TOKEN \
-  -p 3000:3000 \
-  mrmonaghan/greenlight:latest
-```
+This configuration will result in `greenlight` only monitoring for the 'CI/CD Pipeline' status check. See [greenlight.yaml](#greenlightyaml) for the full list of configuration options.
 
-Once the container has started, start `ngrok` and point it at the base URL of the local container: 
+
+Once the container has started, it will need to be made accessible publicly in order to recieve webhook events from Github. If you're using `ngrok`:
 
 ```
 ngrok http http://localhost:3000
 ```
 
-This will print out a disposable URL at which your local `greenlight` container will be publicly accessible. Use this URL to configure a Github webhook on your repository with the following attributes:
+Configure a webhook on your repository with the following properties:
 
 ```
 url: https://$ngrokUrl/github/webhook
@@ -57,14 +53,6 @@ events:
   statuses
   issue_comments
 ```
-
-You can confirm everything is working by commenting `/greenlight refresh` on your pull request; you should see subsquent logs being emitted from the `greenlight` container in response:
-
-```
-{"message": "handling issue_comment event id: ..."}
-```
-
-A `greenlight` status check and associated comment will also be created indicating the merge status of the pull request.
 
 ## greenlight.yaml
 
