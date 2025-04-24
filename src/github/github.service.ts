@@ -5,15 +5,12 @@ import { Octokit } from '@octokit/rest';
 import { ConfigService } from '@nestjs/config';
 import { minimatch } from 'minimatch';
 
-
-
 const SuccessEmoji = ":white_check_mark:";
 const FailureEmoji = ":x:";
 const PendingEmoji = ":yellow_circle:";
 const MissingEmoji = ":eyes:";
 const BeginCommentMarkdown = `<!-- Greenlight Comment -->`;
 const EndCommentMarkdown = `<!-- End Greenlight Comment -->`;
-
 
 @Injectable()
 export class GithubService {
@@ -29,6 +26,7 @@ export class GithubService {
     private ignoreBranchPatterns: string[];
     private includeBranchPatterns: string[];
     private strictStatuses: boolean;
+    private enableComment: boolean;
 
     constructor(private configService: ConfigService) {
 
@@ -39,8 +37,7 @@ export class GithubService {
         
         // load configuration
         // custom service name
-        this.name = this.configService.get<string>('name') || 'greenlight';
-        this.logger.debug(`initialized with name: ${this.name}`);
+        this.name = 'greenlight';
 
         // status checks to ignore, always include own name
         const configIgnores = this.configService.get<string[]>('status.ignore') || [];
@@ -61,6 +58,10 @@ export class GithubService {
         // branch patterns to ignore
         // if no patterns are provided, ignore no branches
         this.ignoreBranchPatterns = this.configService.get<string[]>('branch.ignore') || [];
+
+        // enable comment
+        // enabled by default
+        this.enableComment = this.configService.get<boolean>('enableComment') || true;
 
         // ping events
         // this is used to verify the webhook after creation
@@ -100,13 +101,14 @@ export class GithubService {
             // evaluate statuses
             const { state, existingState, present, missing } = await this.evaluate({ owner, repo, sha });
 
-            const commentTitle = this.markdownTitle(state);
-            const commentBody = this.markdownBody(state, present, missing, this.ignores);
-            const commentFooter = this.markdownFooter(name, id);
-            const comment = this.markdownComment(commentTitle, commentBody, commentFooter);
-
-            // update comment
-            await this.comment(owner, repo, pr.number, comment);
+            // upsert comment if enabled
+            if (this.enableComment) {
+                const commentTitle = this.markdownTitle(state);
+                const commentBody = this.markdownBody(state, present, missing, this.ignores);
+                const commentFooter = this.markdownFooter(name, id);
+                const comment = this.markdownComment(commentTitle, commentBody, commentFooter);
+                await this.comment(owner, repo, pr.number, comment);
+            }           
 
             // check if the status is already set
             if (state === existingState) {
@@ -131,15 +133,19 @@ export class GithubService {
                 const repo = payload.repository.name;
                 const sha = await this.getPRHeadSha(owner, repo, payload.issue.number);
                 const { state, existingState, present, missing } = await this.evaluate({ owner, repo, sha });
-
-                const commentTitle = this.markdownTitle(state);
-                const commentBody = this.markdownBody(state, present, missing, this.ignores);
-                const commentFooter = this.markdownFooter(name, payload.comment.html_url);
-                const comment = this.markdownComment(commentTitle, commentBody, commentFooter);
-                await this.comment(owner, repo, payload.issue.number, comment);
+                
+                if (this.enableComment) {
+                    const commentTitle = this.markdownTitle(state);
+                    const commentBody = this.markdownBody(state, present, missing, this.ignores);
+                    const commentFooter = this.markdownFooter(name, payload.comment.html_url);
+                    const comment = this.markdownComment(commentTitle, commentBody, commentFooter);
+                    await this.comment(owner, repo, payload.issue.number, comment);
+                }
+                
                 if (state !== existingState && sha) {
                     await this.status(owner, repo, sha, payload.repository.html_url, state);
                 }
+
                 await this.createCommentReaction(owner, repo, payload.comment.id, "+1");
                 this.logger.debug(`refreshed status for PR: ${payload.issue.number}`);
             } else {
@@ -213,8 +219,8 @@ export class GithubService {
             return true;
         });
 
-        // if strictStatuses is enabled, all remaining present statuses are required
-        const present = this.strictStatuses ? filteredStatuses : filteredStatuses.filter((status => this.requires.includes(status.context)));
+        // if strictStatuses is enabled, filter out all statuses that are not explicitly required.
+        const present = this.strictStatuses ? filteredStatuses.filter((status => this.requires.includes(status.context))) : filteredStatuses;
         
         const hasFailures = present.some((status) => status.state === "failure");
         const hasPending = present.some((status) => status.state === "pending");
