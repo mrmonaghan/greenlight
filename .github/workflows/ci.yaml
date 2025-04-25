@@ -2,11 +2,8 @@ name: Build and Publish Docker Image
 
 on:
   push:
-    branches:
-      - main
-    paths-ignore:
-      - '**.md'
-      - '.github/**'
+    tags:
+      - v*
 
 jobs:
   build-and-publish:
@@ -25,11 +22,24 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ secrets.DOCKER_USERNAME }}/greenlight
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha
+          flavor: |
+            latest=auto
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
           context: .
+          file: Dockerfile
           push: true
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/greenlight:latest
-            ${{ secrets.DOCKER_USERNAME }}/greenlight:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${ steps.meta.outputs.labels }
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/greenlight:latest
+          cache-to: type=inline

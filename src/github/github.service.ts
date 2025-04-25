@@ -240,22 +240,21 @@ export class GithubService {
     // check if the branch is valid based on provided glob patterns
     branchIsValid(branch: string): boolean {
         // Check if the branch is ignored
+        for (const pattern of this.includeBranchPatterns) {
+            if (minimatch(branch, pattern)) {
+                this.logger.debug(`branch ${branch} is allowed by include pattern ${pattern}`);
+                return true;
+            }
+            this.logger.debug(`branch ${branch} is not allowed by any include pattern`);
+        }
+
         for (const pattern of this.ignoreBranchPatterns) {
             if (minimatch(branch, pattern)) {
                 this.logger.debug(`branch ${branch} is ignored by pattern ${pattern}`);
                 return false;
             }
         }
-        let allowed = true;
-        for (const pattern of this.includeBranchPatterns) {
-            if (minimatch(branch, pattern)) {
-                this.logger.debug(`branch ${branch} is allowed by include pattern ${pattern}`);
-                allowed = true;
-                break;
-            }
-            this.logger.debug(`branch ${branch} is not allowed by any include pattern`);
-        }
-        return allowed;
+        return true;
     }
     
     // set the status of a commit

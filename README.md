@@ -96,7 +96,15 @@ This configuration will require all status checks present on the pull request to
 | `status.ignore` | A list of status checks to ignore during evaluation. | `[]` |
 | `status.strict` | When `true`, *only* required status checks will be evaluated. All other status checks will be ignored. | `false` |
 | `branch.include` | A list of glob expressions the pull request branch must match in order for `greenlight` to take action. Eg: `example-branch-*` | `[]` |
-| `branch.ignore` | The inverse of `branch.include`. `greenlight` will ignore any branch that matches a glob pattern in `branch.ignore`. Ignore rules are always evaluated first, meaning if a branch matches both a `branch.include` and a `branch.ignore` pattern, it will be ignored.
+| `branch.ignore` | The inverse of `branch.include`. `greenlight` will ignore any branch that matches a glob pattern in `branch.ignore`. Include rules are always evaluated first, meaning if a branch matches both a `branch.include` and a `branch.ignore` pattern, it will be included. This it to allow for patterns like: 
+
+```
+branch:
+  include:
+    - just-this-branch
+  ignore:
+    - *
+```
 
 ### Environment Variables
 
