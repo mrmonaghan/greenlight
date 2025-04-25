@@ -29,7 +29,7 @@ jobs:
           images: ${{ secrets.DOCKER_USERNAME }}/greenlight
           tags: |
             type=semver,pattern={{version}}
-            type=sha
+            type=sha,format=short
           flavor: |
             latest=auto
 
